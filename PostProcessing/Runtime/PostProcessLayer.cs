@@ -567,7 +567,6 @@ namespace UnityEngine.Rendering.PostProcessing
             context.antialiasing = antialiasingMode;
             context.temporalAntialiasing = temporalAntialiasing;
             context.logHistogram = m_LogHistogram;
-            SetLegacyCameraFlags(context);
 
             // Prepare debug overlay
             debugLayer.SetFrameSize(context.width, context.height);
@@ -585,6 +584,8 @@ namespace UnityEngine.Rendering.PostProcessing
                 PostProcessManager.instance.UpdateSettings(this, context.camera);
                 context.command.EndSample("VolumeBlending");
                 m_TargetPool.Reset();
+
+                SetLegacyCameraFlags(context);
 
                 // TODO: fix me once VR support is in SRP
                 // Needed in SRP so that _RenderViewportScaleFactor isn't 0
