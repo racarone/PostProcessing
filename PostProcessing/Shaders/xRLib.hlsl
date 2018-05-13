@@ -3,7 +3,24 @@
 #ifndef UNITY_POSTFX_XRLIB
 #define UNITY_POSTFX_XRLIB
 
-#if defined(UNITY_SINGLE_PASS_STEREO)
+#if defined(UNITY_SINGLE_PASS_STEREO) || defined(UNITY_STEREO_INSTANCING_ENABLED) || defined(UNITY_STEREO_MULTIVIEW_ENABLED)
+#define USING_STEREO_MATRICES
+#endif
+
+#if defined(USING_STEREO_MATRICES)
+    #define glstate_matrix_projection unity_StereoMatrixP[unity_StereoEyeIndex]
+    #define unity_MatrixV unity_StereoMatrixV[unity_StereoEyeIndex]
+    #define unity_MatrixInvV unity_StereoMatrixInvV[unity_StereoEyeIndex]
+    #define unity_MatrixVP unity_StereoMatrixVP[unity_StereoEyeIndex]
+
+    #define unity_CameraProjection unity_StereoCameraProjection[unity_StereoEyeIndex]
+    #define unity_CameraInvProjection unity_StereoCameraInvProjection[unity_StereoEyeIndex]
+    #define unity_WorldToCamera unity_StereoWorldToCamera[unity_StereoEyeIndex]
+    #define unity_CameraToWorld unity_StereoCameraToWorld[unity_StereoEyeIndex]
+    #define _WorldSpaceCameraPos unity_StereoWorldSpaceCameraPos[unity_StereoEyeIndex]
+#endif
+
+#if defined(USING_STEREO_MATRICES)
 CBUFFER_START(UnityStereoGlobals)
     float4x4 unity_StereoMatrixP[2];
     float4x4 unity_StereoMatrixV[2];

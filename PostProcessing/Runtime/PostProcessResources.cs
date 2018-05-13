@@ -56,6 +56,7 @@ namespace UnityEngine.Rendering.PostProcessing
             public ComputeShader multiScaleAORender;
             public ComputeShader multiScaleAOUpsample;
             public ComputeShader gaussianDownsample;
+            public ComputeShader temporalAntialiasing;
 
             public ComputeShaders Clone()
             {

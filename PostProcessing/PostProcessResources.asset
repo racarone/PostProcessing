@@ -132,3 +132,5 @@ MonoBehaviour:
       type: 3}
     gaussianDownsample: {fileID: 7200000, guid: 6dba4103d23a7904fbc49099355aff3e,
       type: 3}
+    temporalAntialiasing: {fileID: 7200000, guid: c9983b5d06a537a4c97e236df9a614fd,
+      type: 3}

@@ -20,7 +20,8 @@ Shader "Hidden/PostProcessing/Uber"
 
         #define MAX_CHROMATIC_SAMPLES 16
 
-        TEXTURE2D_SAMPLER2D(_MainTex, sampler_MainTex);
+        SCREENSPACE_TEXTURE(_MainTex);
+        SAMPLER2D(sampler_MainTex);
         float4 _MainTex_TexelSize;
 
         // Auto exposure / eye adaptation
@@ -71,6 +72,8 @@ Shader "Hidden/PostProcessing/Uber"
 
         half4 FragUber(VaryingsDefault i) : SV_Target
         {
+            UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
+
             float2 uv = i.texcoord;
 
             //>>> Automatically skipped by the shader optimizer when not used
@@ -127,7 +130,7 @@ Shader "Hidden/PostProcessing/Uber"
             }
             #else
             {
-                color = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uvStereoDistorted);
+                color = SAMPLE_SCREENSPACE_TEXTURE(_MainTex, sampler_MainTex, uvStereoDistorted);
             }
             #endif
 

@@ -11,6 +11,8 @@ namespace UnityEngine.Rendering.PostProcessing
         internal static readonly int Sharpness                       = Shader.PropertyToID("_Sharpness");
         internal static readonly int FinalBlendParameters            = Shader.PropertyToID("_FinalBlendParameters");
         internal static readonly int HistoryTex                      = Shader.PropertyToID("_HistoryTex");
+        internal static readonly int OutputHistoryTex                = Shader.PropertyToID("_OutputHistoryTex");
+        internal static readonly int DestinationTex                  = Shader.PropertyToID("_DestinationTex");
 
         internal static readonly int SMAA_Flip                       = Shader.PropertyToID("_SMAA_Flip");
         internal static readonly int SMAA_Flop                       = Shader.PropertyToID("_SMAA_Flop");

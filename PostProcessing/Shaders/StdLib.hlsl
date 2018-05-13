@@ -183,11 +183,15 @@ bool AnyIsNan(float4 x)
 // -----------------------------------------------------------------------------
 // Std unity data
 
+#if !defined(UNITY_SINGLE_PASS_STEREO)
 float4x4 unity_CameraProjection;
 float4x4 unity_MatrixVP;
 float4x4 unity_ObjectToWorld;
 float4x4 unity_WorldToCamera;
+float4x4 unity_CameraToWorld;
 float3 _WorldSpaceCameraPos;
+#endif
+
 float4 _ProjectionParams;         // x: 1 (-1 flipped), y: near,     z: far,       w: 1/far
 float4 unity_ColorSpaceLuminance;
 float4 unity_DeltaTime;           // x: dt,             y: 1/dt,     z: smoothDt,  w: 1/smoothDt
@@ -256,6 +260,15 @@ float2 TransformTriangleVertexToUV(float2 vertex)
 }
 
 #include "xRLib.hlsl"
+#include "xRHelpers.hlsl"
+
+#if defined(UNITY_STEREO_INSTANCING_ENABLED) || defined(UNITY_STEREO_MULTIVIEW_ENABLED)
+    #define SCREENSPACE_TEXTURE TEXTURE2D_ARRAY
+    #define SAMPLE_SCREENSPACE_TEXTURE(tex, sampler, uv) SAMPLE_TEXTURE2D_ARRAY(tex, sampler, uv.xy, (float)unity_StereoEyeIndex)
+#else
+    #define SCREENSPACE_TEXTURE TEXTURE2D
+    #define SAMPLE_SCREENSPACE_TEXTURE SAMPLE_TEXTURE2D
+#endif
 
 // -----------------------------------------------------------------------------
 // Default vertex shaders
@@ -263,6 +276,7 @@ float2 TransformTriangleVertexToUV(float2 vertex)
 struct AttributesDefault
 {
     float3 vertex : POSITION;
+    UNITY_VERTEX_INPUT_INSTANCE_ID
 };
 
 struct VaryingsDefault
@@ -270,11 +284,16 @@ struct VaryingsDefault
     float4 vertex : SV_POSITION;
     float2 texcoord : TEXCOORD0;
     float2 texcoordStereo : TEXCOORD1;
+    UNITY_VERTEX_OUTPUT_STEREO  
 };
 
 VaryingsDefault VertDefault(AttributesDefault v)
 {
     VaryingsDefault o;
+
+    UNITY_SETUP_INSTANCE_ID(v);
+    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+
     o.vertex = float4(v.vertex.xy, 0.0, 1.0);
     o.texcoord = TransformTriangleVertexToUV(v.vertex.xy);
 
@@ -292,9 +311,14 @@ float4 _UVTransform; // xy: scale, wz: translate
 VaryingsDefault VertUVTransform(AttributesDefault v)
 {
     VaryingsDefault o;
+
+    UNITY_SETUP_INSTANCE_ID(v);
+    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+
     o.vertex = float4(v.vertex.xy, 0.0, 1.0);
     o.texcoord = TransformTriangleVertexToUV(v.vertex.xy) * _UVTransform.xy + _UVTransform.zw;
     o.texcoordStereo = TransformStereoScreenSpaceTex(o.texcoord, 1.0);
+
     return o;
 }
 

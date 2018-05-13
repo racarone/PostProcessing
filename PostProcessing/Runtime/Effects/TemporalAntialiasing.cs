@@ -29,6 +29,7 @@ namespace UnityEngine.Rendering.PostProcessing
         enum Pass
         {
             SolverDilate,
+            SolverDilateStereo,
             SolverNoDilate
         }
 
@@ -154,11 +155,23 @@ namespace UnityEngine.Rendering.PostProcessing
 
             var rt = m_HistoryTextures[activeEye][id];
 
+            var desc = new RenderTextureDescriptor {
+                dimension = TextureDimension.Tex2D,
+                width = context.width,
+                height = context.height,
+                colorFormat = RenderTextureFormat.ARGBFloat,
+                volumeDepth = 1,
+                msaaSamples = 1,
+                depthBufferBits = 0,
+                useMipMap = false,
+                enableRandomWrite = true
+            };
+
             if (m_ResetHistory || rt == null || !rt.IsCreated())
             {
                 RenderTexture.ReleaseTemporary(rt);
 
-                rt = context.GetScreenSpaceTemporaryRT(0, context.sourceFormat);
+                rt = RenderTexture.GetTemporary(desc);
                 GenerateHistoryName(rt, id, context);
 
                 rt.filterMode = FilterMode.Bilinear;
@@ -170,7 +183,7 @@ namespace UnityEngine.Rendering.PostProcessing
             {
                 // On size change, simply copy the old history to the new one. This looks better
                 // than completely discarding the history and seeing a few aliased frames.
-                var rt2 = context.GetScreenSpaceTemporaryRT(0, context.sourceFormat);
+                var rt2 =RenderTexture.GetTemporary(desc);
                 GenerateHistoryName(rt2, id, context);
 
                 rt2.filterMode = FilterMode.Bilinear;
@@ -185,8 +198,6 @@ namespace UnityEngine.Rendering.PostProcessing
 
         internal void Render(PostProcessRenderContext context)
         {
-            var sheet = context.propertySheets.Get(context.resources.shaders.temporalAntialiasing);
-
             var cmd = context.command;
             cmd.BeginSample("TemporalAntialiasing");
 
@@ -195,19 +206,48 @@ namespace UnityEngine.Rendering.PostProcessing
             var historyWrite = CheckHistory(++pp % 2, context);
             m_HistoryPingPong[context.xrActiveEye] = ++pp % 2;
 
+            var compute = context.resources.computeShaders.temporalAntialiasing;
+            var kernel = context.camera.orthographic ? (int)Pass.SolverNoDilate : (int)Pass.SolverDilate; 
+
+            var renderViewportScaleFactor = Shader.GetGlobalFloat("_RenderViewportScaleFactor");
+            cmd.SetComputeFloatParam(compute, "_RenderViewportScaleFactor", renderViewportScaleFactor);
+            cmd.SetComputeVectorParam(compute, "_ScaleOffsetRes", new Vector4(1, 0, context.width, context.height));
+            cmd.SetComputeTextureParam(compute, kernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
+            cmd.SetComputeTextureParam(compute, kernel, "_CameraMotionVectorsTexture", BuiltinRenderTextureType.MotionVectors);
+
+            //
+
+            cmd.SetComputeVectorParam(compute, "_MainTex_TexelSize", 
+                new Vector4(1f / context.width, 1f / context.height, context.width, context.height));
+            cmd.SetComputeVectorParam(compute, "_CameraDepthTexture_TexelSize", 
+                new Vector4(1f / context.width, 1f / context.height, context.width, context.height));
+
+            //
+
             const float kMotionAmplification = 100f * 60f;
-            sheet.properties.SetVector(ShaderIDs.Jitter, jitter);
-            sheet.properties.SetFloat(ShaderIDs.Sharpness, sharpness);
-            sheet.properties.SetVector(ShaderIDs.FinalBlendParameters, new Vector4(stationaryBlending, motionBlending, kMotionAmplification, 0f));
-            sheet.properties.SetTexture(ShaderIDs.HistoryTex, historyRead);
+            cmd.SetComputeVectorParam(compute, ShaderIDs.Jitter, jitter);
+            cmd.SetComputeFloatParam(compute, ShaderIDs.Sharpness, sharpness);
+            cmd.SetComputeVectorParam(compute, ShaderIDs.FinalBlendParameters, new Vector4(stationaryBlending, motionBlending, kMotionAmplification, 0f));
+            
+            cmd.SetComputeTextureParam(compute, kernel, ShaderIDs.MainTex, context.source);
+
+            cmd.SetComputeTextureParam(compute, kernel, ShaderIDs.HistoryTex, historyRead);
 
             // TODO: Account for different possible RenderViewportScale value from previous frame...
+            int tmpRW = Shader.PropertyToID("tmpRW");
+            cmd.GetTemporaryRT(tmpRW, context.width, context.height, 0, FilterMode.Bilinear, 
+                context.sourceFormat, RenderTextureReadWrite.Default, 1, true);
 
-            int pass = context.camera.orthographic ? (int)Pass.SolverNoDilate : (int)Pass.SolverDilate;
-            m_Mrt[0] = context.destination;
-            m_Mrt[1] = historyWrite;
+            cmd.SetComputeTextureParam(compute, kernel, ShaderIDs.DestinationTex, tmpRW);
+            cmd.SetComputeTextureParam(compute, kernel, ShaderIDs.OutputHistoryTex, historyWrite);
+            
+            int x = (context.width  + 7) / 8;
+            int y = (context.height + 7) / 8;
+            cmd.DispatchCompute(compute, kernel, x, y, 1);
 
-            cmd.BlitFullscreenTriangle(context.source, m_Mrt, context.source, sheet, pass);
+            cmd.BlitFullscreenTriangle(tmpRW, context.destination);
+            cmd.ReleaseTemporaryRT(tmpRW);
+
             cmd.EndSample("TemporalAntialiasing");
 
             m_ResetHistory = false;
@@ -237,6 +277,73 @@ namespace UnityEngine.Rendering.PostProcessing
             m_HistoryPingPong[1] = 0;
             
             ResetHistory();
+        }
+        
+        static Vector2[] kSampleOffsets = new Vector2[] {
+            new Vector2 ( -1.0f, -1.0f ),
+            new Vector2 (  0.0f, -1.0f ),
+            new Vector2 (  1.0f, -1.0f ),
+            new Vector2 ( -1.0f,  0.0f ),
+            new Vector2 (  0.0f,  0.0f ),
+            new Vector2 (  1.0f,  0.0f ),
+            new Vector2 ( -1.0f,  1.0f ),
+            new Vector2 (  0.0f,  1.0f ),
+            new Vector2 (  1.0f,  1.0f ),
+        };
+
+        static float[] s_Weights = new float[9];
+        static float[] s_WeightsPlus = new float[5];
+
+        void ComputeWeights(CommandBuffer cmd, ComputeShader compute)
+        {
+            float totalWeight = 0.0f;
+            float totalWeightLow = 0.0f;
+            float totalWeightPlus = 0.0f;
+
+            for (int i = 0; i < 9; ++i)
+            {
+                float pixelOffsetX = kSampleOffsets[i][0] - jitter.x;
+                float pixelOffsetY = kSampleOffsets[i][1] - jitter.y;
+
+                pixelOffsetX *= jitterSpread;
+                pixelOffsetY *= jitterSpread;
+
+                if (true)
+                {
+                    s_Weights[i] = CatmullRom(pixelOffsetX) * CatmullRom(pixelOffsetY);
+                    totalWeight += s_Weights[i];
+                }
+                else
+                {
+                    // Normal distribution, Sigma = 0.47
+                    s_Weights[i] = Mathf.Exp(-2.29f * (pixelOffsetX * pixelOffsetX + pixelOffsetY * pixelOffsetY));
+                    totalWeight += s_Weights[i];
+                }
+            }
+
+            s_WeightsPlus[0] = s_Weights[1];
+            s_WeightsPlus[1] = s_Weights[3];
+            s_WeightsPlus[2] = s_Weights[4];
+            s_WeightsPlus[3] = s_Weights[5];
+            s_WeightsPlus[4] = s_Weights[7];
+            totalWeightPlus = s_Weights[1] + s_Weights[3] + s_Weights[4] + s_Weights[5] + s_Weights[7];
+
+            for (int i = 0; i < s_Weights.Length; ++i)
+                s_Weights[i] /= totalWeight;
+            for (int i = 0; i < s_WeightsPlus.Length; ++i)
+                s_WeightsPlus[i] /= totalWeightPlus;
+
+            cmd.SetComputeFloatParams(compute, "_SampleWeights", s_Weights);
+            cmd.SetComputeFloatParams(compute, "_PlusWeights", s_Weights);
+        }
+
+        static float CatmullRom(float x)
+        {
+            float ax = Mathf.Abs(x);
+            if (ax > 1.0f)
+                return ((-0.5f * ax + 2.5f) * ax - 4.0f) * ax + 2.0f;
+            else
+                return (1.5f * ax - 2.5f) * ax * ax + 1.0f;
         }
     }
 }
